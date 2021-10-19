@@ -136,7 +136,8 @@ if __name__ == '__main__':
 
             model = faults_classifiers[fault_flag]['model']
             acc = eval(model, [fault_flag], faults_classifiers, threshold)
-
+            print('Fold: {0}, fault: {1}, acc: {2:.3f}'.format(val_idx+1, fault_flag, acc))
+            
             if fault_flag in accs.keys():
                 accs[fault_flag].append(acc)
             else:
