@@ -1,0 +1,8 @@
+data_dir: ./data/CWRU
+fault_flags: ['Normal', 'B', 'IR', 'OR@3', 'OR@6', 'OR@12']
+abnormal_flags: ['IR']
+time_steps: 200
+channels: 2
+threshold: 0.6
+m1: 0.1
+m2: 0.01
