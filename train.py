@@ -1,14 +1,18 @@
 from tqdm import tqdm
 import numpy as np
 import argparse
+import os
+from pathlib import Path
 import tensorflow as tf
 from networks import Cov1DModel, single_loss
 from datasets import CWRUDataset, CWRUDataloader
-from utils import Params, cal_acc, generate_classifier
+from utils import Params, cal_acc, generate_classifier, increment_dir
 
 def get_args():
     parser = argparse.ArgumentParser(description='CWRU data training.')
     parser.add_argument('--cfg', type=str, default='./cfg/cwru.yml', help='The path to the configuration file.')
+    parser.add_argument('--log-dir', type=str, default='./log', help='The directory of log files.')
+    parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--k', type=int, default=10, help='K-folder cross validation.')
@@ -16,10 +20,10 @@ def get_args():
 
     return parser.parse_args()
 
-def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, threshold):
+def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, threshold, results_path):
 
-    train_loader = faults_classifiers[abnormal_flag[0]]['train_loader']
-    test_dataloader = faults_classifiers[abnormal_flag[0]]['test_loader']
+    train_loader = faults_classifiers[abnormal_flag]['train_loader']
+    test_dataloader = faults_classifiers[abnormal_flag]['test_loader']
 
     model = Cov1DModel()
     model.build(input_shape=(batch_size*2, time_steps, channels))
@@ -76,7 +80,10 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
             best_acc = sum(val_accs)/len(val_accs)
             best_model = model
 
-        print('Epoch: {0:4d}, Train loss: {1:.3f}, Train acc: {2:.3f}, Val loss: {3:.3f}, Val acc: {4:.3f}'.format(epoch+1, sum(train_losses)/len(train_losses), sum(train_accs)/len(train_accs), sum(val_losses)/len(val_losses), sum(val_accs)/len(val_accs)))
+        results_str = 'Epoch: {0:4d}, Train loss: {1:.3f}, Train acc: {2:.3f}, Val loss: {3:.3f}, Val acc: {4:.3f}\n'.format(epoch+1, sum(train_losses)/len(train_losses), sum(train_accs)/len(train_accs), sum(val_losses)/len(val_losses), sum(val_accs)/len(val_accs))
+        print(results_str)
+        with open(results_path, 'a') as f:
+            f.write(results_str)
 
     return best_model
 
@@ -105,13 +112,21 @@ def eval(model, abnormal_flag, faults_classifiers, threshold):
 
 if __name__ == '__main__':
     args = get_args()
-    cfg, epochs, batch_size, k, optim_type = \
-        args.cfg, args.epochs, args.batch_size, args.k, args.optim
+    cfg, log_dir, name, epochs, batch_size, k, optim_type = \
+        args.cfg, args.log_dir, args.name, args.epochs, args.batch_size, args.k, args.optim
     
     params = Params(cfg)
     data_dir, fault_flags, time_steps, channels, threshold, m1, m2 = \
         params.data_dir, params.fault_flags, params.time_steps, params.channels, params.threshold, params.m1, params.m2 
 
+    log_dir = increment_dir(Path(log_dir) / 'exp', name)
+    print('Log directory: {}'.format(log_dir))
+    weight_dir = os.path.join(log_dir, 'weights')
+    if not os.path.exists(weight_dir):
+        os.makedirs(weight_dir)
+    results_dir = os.path.join(log_dir, 'results')
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
 
     dataset = CWRUDataset(data_dir=data_dir, 
                            fault_flags=fault_flags, 
@@ -126,8 +141,10 @@ if __name__ == '__main__':
         for fault_flag in fault_flags:
             if fault_flag == 'Normal':
                 continue
-            
-            model = train([fault_flag], faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, threshold)
+            results_path = os.path.join(results_dir, '{}_{}_results.txt'.format(fault_flag, val_idx))
+            model = train(fault_flag, faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, threshold, results_path)
+            save_path = os.path.join(weight_dir, '{}_{}.h5'.format(fault_flag, val_idx))
+            model.save_weights(save_path)
             faults_classifiers[fault_flag]['model'] = model
 
         for fault_flag in fault_flags:
@@ -135,14 +152,18 @@ if __name__ == '__main__':
                 continue
 
             model = faults_classifiers[fault_flag]['model']
-            acc = eval(model, [fault_flag], faults_classifiers, threshold)
+            acc = eval(model, fault_flag, faults_classifiers, threshold)
             print('Fold: {0}, fault: {1}, acc: {2:.3f}'.format(val_idx+1, fault_flag, acc))
-            
+
             if fault_flag in accs.keys():
                 accs[fault_flag].append(acc)
             else:
                 accs[fault_flag] = [acc]
 
-    for fault_flag, v in accs:
+    acc_path = os.path.join(results_dir, 'avg_acc.txt')
+    for fault_flag, v in accs.items():
         avg_acc = sum(v) / len(v)
-        print('{0}: {1:.3f}'.format(avg_acc))
+        results_str = '{0}: {1:.3f}\n'.format(fault_flag, avg_acc)
+        print(results_str)
+        with open(acc_path, 'a') as f:
+            f.write(results_str)
