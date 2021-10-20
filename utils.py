@@ -21,7 +21,7 @@ def cal_acc(**kwargs):
         pred = np.sum(np.squeeze(pred, axis=2), axis=1)
         pred = np.where(pred < threshold, 0 ,1)
 
-        return (np.sum(pred[:batch_size]==1) + np.sum(pred[batch_size:]==0)) / len(pred) * 100 #neg_batch label: 0 && pos_batch label: 1 
+        return (np.sum(pred[:batch_size]==1) + np.sum(pred[batch_size:]==0)) / len(pred)
     elif mode == 'eval':
         abnormal_flag = kwargs.get('abnormal_flag', None)
         tp = 0
@@ -37,9 +37,10 @@ def cal_acc(**kwargs):
                 tp += np.sum(p==0)
             total += len(p)
 
-        return tp / total * 100
+        return tp / total
 
 def cal_classifier_acc(fault_flags, faults_classifiers, threshold=0.6):
+    accs = {}
     for fault_flag in fault_flags:
         if fault_flag == 'Normal':
             continue
@@ -49,10 +50,15 @@ def cal_classifier_acc(fault_flags, faults_classifiers, threshold=0.6):
         neg_models = []
         neg_loaders = []
         for k, v in faults_classifiers.items():
-            if k == 'Normal' or k == fault_flag:
+            if k == fault_flag:
                 continue
-            neg_models.append(faults_classifiers[k]['model'])
-            neg_loaders.append(faults_classifiers[k]['test_loader'])
+            
+            neg_loaders.append(v['test_loader'])
+
+            if k == 'Normal':
+                continue
+
+            neg_models.append(v['model'])
 
         tp = 0
         total = 0
@@ -69,11 +75,11 @@ def cal_classifier_acc(fault_flags, faults_classifiers, threshold=0.6):
 
             ab = np.where(pred>threshold, 1, 0)[0]
             max_idxs = np.argmax(pred, axis=0)
-            acc = np.sum(np.where(max_idxs==0)[0]==np.where(ab==1)[0]) / len(max_idxs) * 100
+            acc = np.sum(np.where(max_idxs==0)[0]==np.where(ab==1)[0]) / len(max_idxs)
             tp += np.sum(np.where(max_idxs==0)[0]==np.where(ab==1)[0])
             total += len(max_idxs)
 
-            postfix = '[Positive samples evaluation] Step: {0:4d}, Val acc: {1:.3f}'.format(step+1, acc)
+            postfix = '[Positive samples evaluation] Step: {0:4d}, Val acc: {1:.4f}'.format(step+1, acc)
             process.set_postfix_str(postfix)
 
         # neg_loader evaluation
@@ -90,12 +96,17 @@ def cal_classifier_acc(fault_flags, faults_classifiers, threshold=0.6):
 
                 ab = np.where(pred>threshold, 1, 0)[0]
                 max_idxs = np.argmax(pred, axis=0)
-                acc = np.sum(np.where(max_idxs!=0)[0]==np.where(ab==1)[0]) / len(max_idxs) * 100
+                acc = np.sum(np.where(max_idxs!=0)[0]==np.where(ab==1)[0]) / len(max_idxs)
                 tp += np.sum(np.where(max_idxs!=0)[0]==np.where(ab==1)[0])
                 total += len(max_idxs)
 
-                postfix = '[Negative samples evaluation] Step: {0:4d}, Val acc: {1:.3f}'.format(step+1, acc)
+                postfix = '[Negative samples evaluation] Step: {0:4d}, Val acc: {1:.4f}'.format(step+1, acc)
                 process.set_postfix_str(postfix)
+        
+        fault_acc = tp / total
+        accs[fault_flag] = fault_acc
+
+    return accs
 
 def generate_classifier(fault_flags, dataset, val_idx, batch_size):
     faults_classifiers = {}
