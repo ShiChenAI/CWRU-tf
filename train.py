@@ -15,7 +15,7 @@ def get_args():
     parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--k', type=int, default=10, help='K-folder cross validation.')
+    parser.add_argument('--k', type=int, default=10, help='K-fold cross validation.')
     parser.add_argument('--optim', type=str, default='adam', help='The optimizer to use (Adam or SGD).')
 
     return parser.parse_args()
