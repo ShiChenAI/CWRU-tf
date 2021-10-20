@@ -1,6 +1,8 @@
 import numpy as np
 from tqdm import tqdm
 import yaml
+import glob
+from pathlib import Path
 from datasets import CWRUDataloader
 
 class Params:
@@ -101,9 +103,20 @@ def generate_classifier(fault_flags, dataset, val_idx, batch_size):
         if fault_flag == 'Normal':
             continue
         abnormal_flags = [fault_flag]
+        print('[fold: {0}] Generating data...[fault_flag: {1}]'.format(val_idx, fault_flag))
         datasets = dataset.generate_datasets(abnormal_flags, val_idx)
         faults_classifiers[fault_flag] = {'model': None,
                                           'train_loader': CWRUDataloader(datasets['train'], batch_size), 
                                           'test_loader': CWRUDataloader(datasets['test'], batch_size)}
 
     return faults_classifiers
+
+def increment_dir(dir, comment=''):
+    # Increments a directory runs/exp1 --> runs/exp2_comment
+
+    n = 0  # number
+    dir = str(Path(dir))  # os-agnostic
+    d = sorted(glob.glob(dir + '*'))  # directories
+    if len(d):
+        n = max([int(x[len(dir):x.find('_') if '_' in x else None]) for x in d]) + 1  # increment
+    return dir + str(n) + ('_' + comment if comment else '')
