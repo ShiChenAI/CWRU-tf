@@ -6,7 +6,7 @@ from pathlib import Path
 import tensorflow as tf
 from networks import Cov1DModel, single_loss
 from datasets import CWRUDataset, CWRUDataloader
-from utils import Params, cal_acc, generate_classifier, increment_dir
+from utils import Params, cal_acc, generate_classifier, increment_dir, cal_classifier_acc
 
 def get_args():
     parser = argparse.ArgumentParser(description='CWRU data training.')
@@ -20,7 +20,7 @@ def get_args():
 
     return parser.parse_args()
 
-def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, threshold, results_path):
+def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, optim_type, threshold, results_path):
 
     train_loader = faults_classifiers[abnormal_flag]['train_loader']
     test_dataloader = faults_classifiers[abnormal_flag]['test_loader']
@@ -31,7 +31,10 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
     # モデルの内容を出力
     model.summary()
 
-    optimizer = tf.keras.optimizers.Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=None, decay=0.0, amsgrad=False)
+    if optim_type == 'adam':
+        optimizer = tf.keras.optimizers.Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=None, decay=0.0, amsgrad=False)
+    elif optim_type == 'sgd':
+        optimizer = tf.keras.optimizers.SGD(lr=0.0001, decay=1e-4, momentum=0.8, nesterov=True)
 
     best_acc = 0
     best_model = None
@@ -55,7 +58,7 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
             d = t.gradient(loss, model.trainable_weights)
             optimizer.apply_gradients(zip(d, model.trainable_weights))
 
-            postfix = 'Step: {0:4d}, Train loss: {1:.3f}, Train acc: {2:.3f}'.format(step+1, loss, acc)
+            postfix = 'Step: {0:4d}, Train loss: {1:.4f}, Train acc: {2:.4f}'.format(step+1, loss, acc)
             process.set_postfix_str(postfix)
 
         # Eval
@@ -73,14 +76,14 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
             acc = cal_acc(mode='train', threshold=threshold, pred=pred)
             val_accs.append(acc)
 
-            postfix = 'Step: {0:4d}, Val loss: {1:.3f}, Val acc: {2:.3f}'.format(step+1, loss, acc)
+            postfix = 'Step: {0:4d}, Val loss: {1:.4f}, Val acc: {2:.4f}'.format(step+1, loss, acc)
             process.set_postfix_str(postfix)
 
         if best_acc < sum(val_accs)/len(val_accs):
             best_acc = sum(val_accs)/len(val_accs)
             best_model = model
 
-        results_str = 'Epoch: {0:4d}, Train loss: {1:.3f}, Train acc: {2:.3f}, Val loss: {3:.3f}, Val acc: {4:.3f}\n'.format(epoch+1, sum(train_losses)/len(train_losses), sum(train_accs)/len(train_accs), sum(val_losses)/len(val_losses), sum(val_accs)/len(val_accs))
+        results_str = 'Epoch: {0:4d}, Train loss: {1:.4f}, Train acc: {2:.4f}, Val loss: {3:.4f}, Val acc: {4:.4f}\n'.format(epoch+1, sum(train_losses)/len(train_losses), sum(train_accs)/len(train_accs), sum(val_losses)/len(val_losses), sum(val_accs)/len(val_accs))
         print(results_str)
         with open(results_path, 'a') as f:
             f.write(results_str)
@@ -142,28 +145,26 @@ if __name__ == '__main__':
             if fault_flag == 'Normal':
                 continue
             results_path = os.path.join(results_dir, '{}_{}_results.txt'.format(fault_flag, val_idx))
-            model = train(fault_flag, faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, threshold, results_path)
+            model = train(fault_flag, faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, optim_type, threshold, results_path)
             save_path = os.path.join(weight_dir, '{}_{}.h5'.format(fault_flag, val_idx))
             model.save_weights(save_path)
             faults_classifiers[fault_flag]['model'] = model
 
-        for fault_flag in fault_flags:
-            if fault_flag == 'Normal':
-                continue
-
-            model = faults_classifiers[fault_flag]['model']
-            acc = eval(model, fault_flag, faults_classifiers, threshold)
-            print('Fold: {0}, fault: {1}, acc: {2:.3f}'.format(val_idx+1, fault_flag, acc))
-
+        print('\nEvaluating fold {0}...\n'.format(val_idx+1))
+        cur_accs = cal_classifier_acc(fault_flags, faults_classifiers, threshold)
+        print('\nEvaluating results of fold {0}:\n'.format(val_idx+1))
+        for fault_flag, acc in cur_accs.items():
+            print('{0}: {1:.4f}\n'.format(fault_flag, acc))
             if fault_flag in accs.keys():
                 accs[fault_flag].append(acc)
             else:
                 accs[fault_flag] = [acc]
 
+    print('\nFinal evaluating...\n')
     acc_path = os.path.join(results_dir, 'avg_acc.txt')
     for fault_flag, v in accs.items():
         avg_acc = sum(v) / len(v)
-        results_str = '{0}: {1:.3f}\n'.format(fault_flag, avg_acc)
+        results_str = '{0}: {1:.4f}\n'.format(fault_flag, avg_acc)
         print(results_str)
         with open(acc_path, 'a') as f:
             f.write(results_str)
