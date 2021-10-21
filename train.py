@@ -90,29 +90,6 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
 
     return best_model
 
-def eval(model, abnormal_flag, faults_classifiers, threshold):
-    preds = {}
-    for fault_flag, v in faults_classifiers.items():
-        dataloader = v['test_loader']
-        fault_preds = None
-        process = tqdm(enumerate(dataloader), total=dataloader.gen_len())
-        for step, data in process:
-            batch = data['pos_data']    
-            pred = model(batch)
-            if fault_preds is None:
-                fault_preds = pred
-            else:
-                fault_preds = np.vstack((fault_preds, pred))
-
-            postfix = '[{0}] Step: {1:4d}'.format(fault_flag, step+1)
-            process.set_postfix_str(postfix)
-
-        preds[fault_flag] = fault_preds
-            
-    acc = cal_acc(mode='eval', threshold=threshold, pred=preds, abnormal_flag=abnormal_flag)
-
-    return acc
-
 if __name__ == '__main__':
     args = get_args()
     cfg, log_dir, name, epochs, batch_size, k, optim_type = \
