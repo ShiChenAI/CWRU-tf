@@ -14,14 +14,18 @@ class Params:
 
 def cal_acc(**kwargs):
     mode = kwargs.get('mode', 'train')
-    threshold = kwargs.get('threshold', 0.6)
+    threshold = kwargs.get('threshold', [0.5, 0.1])
     pred = kwargs.get('pred', None)
     if mode == 'train':
         batch_size = pred.shape[0]//2 
         pred = np.sum(np.squeeze(pred, axis=2), axis=1)
-        pred = np.where(pred < threshold, 0 ,1)
+        pos_sum = np.sum(pred[:batch_size])
+        neg_sum = np.sum(pred[batch_size:])
+        pos_mask = np.where(pred < threshold[0], 0 ,1)
+        neg_mask = np.where(pred < threshold[1], 0 ,1)
+        #pred = np.where(pred < threshold, 0 ,1)
 
-        return (np.sum(pred[:batch_size]==1) + np.sum(pred[batch_size:]==0)) / len(pred)
+        return (np.sum(pos_mask[:batch_size]==1) + np.sum(neg_mask[batch_size:]==0)) / len(pred), pos_sum, neg_sum
     elif mode == 'eval':
         abnormal_flag = kwargs.get('abnormal_flag', None)
         tp = 0
@@ -68,7 +72,7 @@ def cal_classifier_acc(fault_flags, faults_classifiers, threshold=0.6):
                 neg_pred = np.sum(np.squeeze(neg_pred, axis=2), axis=1)
                 pred = np.vstack((pred, neg_pred))
 
-            ab = np.where(pred>threshold, 1, 0)[0]
+            ab = np.where(pred>0, 1, 0)[0]
             max_idxs = np.argmax(pred, axis=0)
             tp += len(np.intersect1d(np.where(max_idxs==0)[0], np.where(ab==1)[0]))
             total += len(max_idxs)
