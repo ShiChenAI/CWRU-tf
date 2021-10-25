@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument('--log-dir', type=str, default='./log', help='The directory of log files.')
     parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
     parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--batch-size', type=int, default=32)
+    parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--k', type=int, default=10, help='K-fold cross validation.')
     parser.add_argument('--optim', type=str, default='adam', help='The optimizer to use (Adam or SGD).')
 
@@ -33,10 +33,13 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
 
     if optim_type == 'adam':
         optimizer = tf.keras.optimizers.Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=None, decay=0.0, amsgrad=False)
+    elif optim_type == 'nadam':
+        optimizer = tf.keras.optimizers.Nadam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=None, schedule_decay=0.004)
     elif optim_type == 'sgd':
         optimizer = tf.keras.optimizers.SGD(lr=0.0001, decay=1e-4, momentum=0.8, nesterov=True)
 
     best_acc = 0
+    best_diff = 0
     best_model = None
     for epoch in range(epochs):
         process = tqdm(enumerate(train_loader), total=train_loader.gen_len())
@@ -52,13 +55,13 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
                 pred = model(batch)
                 loss = single_loss(pred, m1, m2)
                 train_losses.append(loss)
-                acc = cal_acc(mode='train', threshold=threshold, pred=pred)
+                acc, pos_sum, neg_sum = cal_acc(mode='train', threshold=threshold, pred=pred)
                 train_accs.append(acc)
             
             d = t.gradient(loss, model.trainable_weights)
             optimizer.apply_gradients(zip(d, model.trainable_weights))
 
-            postfix = 'Step: {0:4d}, Train loss: {1:.4f}, Train acc: {2:.4f}'.format(step+1, loss, acc)
+            postfix = 'Step: {0:4d}, Train loss: {1:.4f}, Train acc: {2:.4f}, Positive score: {3:.4f}, Negative score: {4:.4f}'.format(step+1, loss, acc, pos_sum, neg_sum)
             process.set_postfix_str(postfix)
 
         # Eval
@@ -73,10 +76,10 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
             pred = model(batch)
             loss = single_loss(pred, m1, m2)
             val_losses.append(loss)
-            acc = cal_acc(mode='train', threshold=threshold, pred=pred)
+            acc, pos_sum, neg_sum = cal_acc(mode='train', threshold=threshold, pred=pred)
             val_accs.append(acc)
 
-            postfix = 'Step: {0:4d}, Val loss: {1:.4f}, Val acc: {2:.4f}'.format(step+1, loss, acc)
+            postfix = 'Step: {0:4d}, Val loss: {1:.4f}, Val acc: {2:.4f}, Positive score: {3:.4f}, Negative score: {4:.4f}'.format(step+1, loss, acc, pos_sum, neg_sum)
             process.set_postfix_str(postfix)
 
         if best_acc < sum(val_accs)/len(val_accs):
