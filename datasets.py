@@ -26,10 +26,19 @@ class CWRUDataset(object):
     def _mat2arr(self, mat_path):
         mat = loadmat(mat_path)
 
-        if len(mat.keys()) > 4:       
+        keys = []
+        for k in mat.keys():
+            if k not in ['__header__', '__version__', '__globals__', 'ans'] and 'RPM' not in k:
+                keys.append(k)
+
+        return np.hstack([mat[key] for key in keys])
+        """
+        if len(mat.keys()) > 4:      
+            print(mat.keys()) 
             return np.hstack([mat[key] for key in list(mat.keys())[3:-1]])
         else:
             return mat[list(mat.keys())[3]]
+        """
 
     def _split_files(self, flags):
         kf_samples = {}
@@ -37,6 +46,9 @@ class CWRUDataset(object):
             files_dir = os.path.join(self.data_dir, flag)
             samples = []
             for f in tqdm(glob.glob('{}/*'.format(files_dir)), desc='Splitting CWRU files ({})'.format(flag)):
+                #print(f)
+                if f == './data/CWRU2/Normal/99.mat':
+                    ccc = 0
                 arr = self._mat2arr(f)
                 if arr.shape[1] == 1:
                     continue
