@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 import tensorflow as tf
-from networks import Cov1DModel, single_loss
+from networks import Cov1DModel, single_loss, Transformer
 from datasets import CWRUDataset, CWRUDataloader
 from utils import Params, cal_acc, generate_classifier, increment_dir, cal_classifier_acc
 
@@ -17,6 +17,7 @@ def get_args():
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--k', type=int, default=10, help='K-fold cross validation.')
     parser.add_argument('--optim', type=str, default='adam', help='The optimizer to use (Adam or SGD).')
+    parser.add_argument('--model', type=str, default='cnn', help='1DCNN/Transformer.')
 
     return parser.parse_args()
 
@@ -97,15 +98,38 @@ def train(abnormal_flag, faults_classifiers, epochs, m1, m2, batch_size, time_st
 
     return best_model
 
-def batch_train(faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, optim_type, threshold, acc_path):
+def batch_train(**kwargs):
+    m = kwargs.get('m', 'cnn')
+    faults_classifiers = kwargs.get('faults_classifiers', None)
+    epochs = kwargs.get('epochs', 1)
+    m1 = kwargs.get('m1', 0.1)
+    m2 = kwargs.get('m2', 0.1)
+    batch_size = kwargs.get('batch_size', 8)
+    time_steps = kwargs.get('time_steps', 200)
+    channels = kwargs.get('channels', 2)
+    optim_type = kwargs.get('optim_type', 'adam')
+    threshold = kwargs.get('threshold', None)
+    acc_path = kwargs.get('acc_path', None)
+
     accs = {}
     for k in faults_classifiers.keys():
-        model = Cov1DModel()
-        model.build(input_shape=(batch_size*2, time_steps, channels))
+        if m == 'cnn':
+            model = Cov1DModel()
+            model.build(input_shape=(batch_size*2, time_steps, channels))
+        elif m == 'transformer':
+            num_layers = kwargs.get('num_layers', 4)
+            num_heads = kwargs.get('num_heads', 2)
+            d_model = kwargs.get('d_model', 2)
+            hidden_layer_shape = kwargs.get('hidden_layer_shape', 2048)
+            max_pos_encoding = kwargs.get('max_pos_encoding', 100000)
+            rate = kwargs.get('rate', 0.1)
+            model = Transformer(num_layers=num_layers, num_heads=num_heads, d_model=d_model, 
+                                hidden_layer_shape=hidden_layer_shape, max_pos_encoding=max_pos_encoding, rate=rate)
+        
         faults_classifiers[k]['model'] = model
 
         if optim_type == 'adam':
-            optimizer = tf.keras.optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=None, decay=0.0, amsgrad=False)
+            optimizer = tf.keras.optimizers.Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=None, decay=0.0, amsgrad=False)
         elif optim_type == 'nadam':
             optimizer = tf.keras.optimizers.Nadam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=None, schedule_decay=0.004)
         elif optim_type == 'sgd':
@@ -147,7 +171,7 @@ def batch_train(faults_classifiers, epochs, m1, m2, batch_size, time_steps, chan
         cur_accs = cal_classifier_acc(fault_flags, faults_classifiers, threshold)
         accs = []
         for fault_flag, acc in cur_accs.items():
-            results_str = 'Epoch: {0:4d}, fault: {1}: {2:.4f}'.format(epoch+1, fault_flag, acc)
+            results_str = 'Epoch: {0:4d}, fault: {1}: {2:.4f}\n'.format(epoch+1, fault_flag, acc)
             print(results_str)
             with open(acc_path, 'a') as f:
                 f.write(results_str)
@@ -162,12 +186,15 @@ def batch_train(faults_classifiers, epochs, m1, m2, batch_size, time_steps, chan
 
 if __name__ == '__main__':
     args = get_args()
-    cfg, log_dir, name, epochs, batch_size, k, optim_type = \
-        args.cfg, args.log_dir, args.name, args.epochs, args.batch_size, args.k, args.optim
+    cfg, log_dir, name, epochs, batch_size, k, optim_type, m = \
+        args.cfg, args.log_dir, args.name, args.epochs, args.batch_size, args.k, args.optim, args.model
     
     params = Params(cfg)
     data_dir, fault_flags, time_steps, channels, threshold, m1, m2 = \
         params.data_dir, params.fault_flags, params.time_steps, params.channels, params.threshold, params.m1, params.m2 
+    if m == 'transformer':
+        num_layers, num_heads, d_model, hidden_layer_shape, max_pos_encoding, rate = \
+            params.num_layers, params.num_heads, params.d_model, params.hidden_layer_shape, params.max_pos_encoding, params.rate 
 
     log_dir = increment_dir(Path(log_dir) / 'exp', name)
     print('Log directory: {}'.format(log_dir))
@@ -191,12 +218,42 @@ if __name__ == '__main__':
             print('Start {0}-Fold Cross-Validation: {1}'.format(k, val_idx+1))
             faults_classifiers = generate_classifier(fault_flags, dataset, val_idx, batch_size)
             acc_path = os.path.join(results_dir, 'avg_acc.txt')
-            accs = batch_train(faults_classifiers, epochs, m1, m2, batch_size, time_steps, channels, optim_type, threshold, acc_path)
+            if m == 'cnn':
+                accs = batch_train(m=m, 
+                                   faults_classifiers=faults_classifiers, 
+                                   epochs=epochs, 
+                                   m1=m1, 
+                                   m2=m2, 
+                                   batch_size=batch_size, 
+                                   time_steps=time_steps, 
+                                   channels=channels, 
+                                   optim_type=optim_type, 
+                                   threshold=threshold, 
+                                   acc_path=acc_path)
+            elif m == 'transformer':
+                accs = batch_train(m=m, 
+                                   faults_classifiers=faults_classifiers, 
+                                   epochs=epochs, 
+                                   m1=m1, 
+                                   m2=m2, 
+                                   batch_size=batch_size, 
+                                   time_steps=time_steps, 
+                                   channels=channels, 
+                                   optim_type=optim_type, 
+                                   threshold=threshold, 
+                                   acc_path=acc_path, 
+                                   num_layers=num_layers, 
+                                   num_heads=num_heads, 
+                                   d_model=d_model, 
+                                   hidden_layer_shape=hidden_layer_shape,
+                                   max_pos_encoding=max_pos_encoding, 
+                                   rate=rate)
             for fault_flag, acc in accs.items():
                 if fault_flag in final_accs.keys():
                     final_accs[fault_flag].append(acc)
                 else:
                     final_accs[fault_flag] = [acc]
+            break
         print('\nFinal evaluating...\n')
         final_acc_path = os.path.join(results_dir, 'final_avg_acc.txt')
         for fault_flag, v in final_accs.items():
