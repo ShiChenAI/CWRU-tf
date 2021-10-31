@@ -168,6 +168,27 @@ def batch_train(**kwargs):
                 postfix = 'Fault: {0}, Step: {1:4d}, Train loss: {2:.4f}, Train acc: {3:.4f}, Positive score: {4:.4f}, Negative score: {5:.4f}'.format(k, step+1, sum(train_losses)/len(train_losses), sum(train_accs)/len(train_accs), sum(pos_scores)/len(pos_scores), sum(neg_scores)/len(neg_scores))
                 process.set_postfix_str(postfix)
 
+            # Eval
+            val_losses = []
+            val_accs = []
+            pos_scores = []
+            neg_scores = []
+            test_dataloader = faults_classifiers[k]['test_loader']
+            process = tqdm(enumerate(test_dataloader), total=test_dataloader.gen_len())
+            for step, data in process:
+                pos_data, neg_data = data['pos_data'], data['neg_data']
+                batch = tf.concat([pos_data, neg_data], 0)
+                pred = faults_classifiers[k]['model'](batch)
+                loss = single_loss(pred, m1, m2)
+                val_losses.append(loss)
+                acc, pos_sum, neg_sum = cal_acc(mode='train', threshold=threshold, pred=pred)
+                val_accs.append(acc)
+                pos_scores.append(pos_sum)
+                neg_scores.append(neg_sum)
+
+                postfix = 'Fault: {0}, Step: {1:4d}, Val loss: {2:.4f}, Val acc: {3:.4f}, Positive score: {4:.4f}, Negative score: {5:.4f}'.format(k, step+1, sum(val_losses)/len(val_losses), sum(val_accs)/len(val_accs), sum(pos_scores)/len(pos_scores), sum(neg_scores)/len(neg_scores))
+                process.set_postfix_str(postfix)
+
         cur_accs = cal_classifier_acc(fault_flags, faults_classifiers, threshold)
         accs = []
         for fault_flag, acc in cur_accs.items():
