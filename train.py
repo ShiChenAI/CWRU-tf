@@ -165,7 +165,7 @@ def batch_train(**kwargs):
                 d = t.gradient(loss, faults_classifiers[k]['model'].trainable_weights)
                 faults_classifiers[k]['optimizer'].apply_gradients(zip(d, faults_classifiers[k]['model'].trainable_weights))
 
-                postfix = 'Fault: {0}, Step: {1:4d}, Train loss: {2:.4f}, Train acc: {3:.4f}, Positive score: {4:.4f}, Negative score: {5:.4f}'.format(k, step+1, loss, acc, sum(pos_scores)/len(pos_scores), sum(neg_scores)/len(neg_scores))
+                postfix = 'Fault: {0}, Step: {1:4d}, Train loss: {2:.4f}, Train acc: {3:.4f}, Positive score: {4:.4f}, Negative score: {5:.4f}'.format(k, step+1, sum(train_losses)/len(train_losses), sum(train_accs)/len(train_accs), sum(pos_scores)/len(pos_scores), sum(neg_scores)/len(neg_scores))
                 process.set_postfix_str(postfix)
 
         cur_accs = cal_classifier_acc(fault_flags, faults_classifiers, threshold)
