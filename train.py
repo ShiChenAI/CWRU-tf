@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 import tensorflow as tf
-from networks import Cov1DModel, single_loss, Transformer
+from networks import Cov1DModel, single_loss, Transformer, AttentionCov1DModel
 from datasets import CWRUDataset, CWRUDataloader
 from utils import Params, cal_acc, generate_classifier, increment_dir, cal_classifier_acc
 
@@ -115,6 +115,9 @@ def batch_train(**kwargs):
     for k in faults_classifiers.keys():
         if m == 'cnn':
             model = Cov1DModel()
+            model.build(input_shape=(batch_size*2, time_steps, channels))
+        elif m == 'att_cnn':
+            model = AttentionCov1DModel()
             model.build(input_shape=(batch_size*2, time_steps, channels))
         elif m == 'transformer':
             num_layers = kwargs.get('num_layers', 4)
@@ -239,7 +242,7 @@ if __name__ == '__main__':
             print('Start {0}-Fold Cross-Validation: {1}'.format(k, val_idx+1))
             faults_classifiers = generate_classifier(fault_flags, dataset, val_idx, batch_size)
             acc_path = os.path.join(results_dir, 'avg_acc.txt')
-            if m == 'cnn':
+            if m == 'cnn' or m == 'att_cnn':
                 accs = batch_train(m=m, 
                                    faults_classifiers=faults_classifiers, 
                                    epochs=epochs, 
