@@ -1,6 +1,8 @@
 import numpy as np
 import tensorflow as tf
+import tensorflow.keras.backend as K
 from tensorflow.keras import layers
+#from tensorflow.python.keras.layers import Layer
 
 class Cov1DModel(tf.keras.Model):
     def __init__(self):
@@ -21,6 +23,30 @@ class Cov1DModel(tf.keras.Model):
         x = self.norm2(x)
         x = self.conv1d3(x)    
         x = self.pooling(x)
+        return x
+
+class AttentionCov1DModel(tf.keras.Model):
+    def __init__(self):
+        he_initializer = tf.keras.initializers.he_normal()
+        norm_initializer = tf.keras.initializers.RandomNormal(mean=1.0, stddev=0.01)
+        super(AttentionCov1DModel, self).__init__()
+        self.conv1d1 = layers.Conv1D(128, kernel_size=(9,), kernel_initializer=he_initializer, padding='same', activation='relu', input_shape=(40,200,12))
+        self.norm1 = layers.BatchNormalization(momentum=0.90, epsilon=10**-5, gamma_initializer=norm_initializer)
+        self.conv1d2 = layers.Conv1D(128, kernel_size=(9,), kernel_initializer=he_initializer, padding='same', activation='relu')
+        self.norm2 = layers.BatchNormalization(momentum=0.90, epsilon=10**-5, gamma_initializer=norm_initializer)
+        self.conv1d3 = layers.Conv1D(1, kernel_size=(1,), kernel_initializer=he_initializer, activation='sigmoid')
+        self.pooling = layers.AveragePooling1D(pool_size=10)
+        self.attention1 = Attention()
+
+    def call(self, x):
+        x = self.conv1d1(x)
+        x = self.norm1(x)
+        x = self.conv1d2(x)
+        x = self.norm2(x)
+        x = self.attention1(x) 
+        x = self.conv1d3(x) 
+        x = self.pooling(x)
+          
         return x
 
 def single_loss(result, m1, m2):
@@ -306,3 +332,44 @@ class Transformer(tf.keras.Model):
         final_output = self.final_layer(enc_output)
 
         return final_output
+
+class Attention(tf.keras.layers.Layer):
+    def __init__(self, return_sequences=True):
+        self.return_sequences = return_sequences
+        super(Attention, self).__init__()
+        
+    def build(self, input_shape):
+        
+        self.W = self.add_weight(name="att_weight", shape=(input_shape[-1],1),
+                               initializer="normal")
+        self.b = self.add_weight(name="att_bias", shape=(input_shape[1],1),
+                               initializer="zeros")
+        
+        super(Attention, self).build(input_shape)
+        
+    def call(self, x):
+        
+        e = K.tanh(K.dot(x,self.W)+self.b)
+        a = K.softmax(e, axis=1)
+        output = x*a
+        
+        if self.return_sequences:
+            return output
+        
+        return K.sum(output, axis=1)
+    
+    ### https://stackoverflow.com/questions/58678836/notimplementederror-layers-with-arguments-in-init-must-override-get-conf
+    ### I'm not doing this right... 
+    ### https://www.tensorflow.org/guide/keras/save_and_serialize
+    def get_config(self):
+
+        config = super().get_config().copy()
+        config.update({
+#             'vocab_size': self.vocab_size,
+            'num_layers': self.num_layers,
+            'units': self.units,
+            'd_model': self.d_model,
+            'num_heads': self.num_heads,
+            'dropout': self.dropout,
+        })
+        return config
